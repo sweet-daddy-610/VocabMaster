@@ -1,0 +1,551 @@
+/**
+ * Dictionary Module
+ * Handles word/phrase lookup via multiple APIs and translation
+ * 
+ * Multi-tier strategy:
+ * 1. Single English words → Free Dictionary API → Wiktionary fallback
+ * 2. English phrases → Wiktionary API → translation-only fallback
+ * 3. Chinese input → MyMemory zh→en → then English lookup
+ * 4. Final fallback → DeepSeek LLM (when all above fail)
+ */
+
+const DICTIONARY_API = 'https://api.dictionaryapi.dev/api/v2/entries/en';
+const WIKTIONARY_API = 'https://en.wiktionary.org/api/rest_v1/page/definition';
+const TRANSLATION_API = 'https://api.mymemory.translated.net/get';
+const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
+
+// ===== Input Detection =====
+
+/**
+ * Detect input type: 'chinese', 'phrase', or 'word'
+ * @param {string} text
+ * @returns {'chinese'|'phrase'|'word'}
+ */
+export function detectInputType(text) {
+    const trimmed = text.trim();
+    // Check for CJK characters (Chinese/Japanese/Korean)
+    if (/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(trimmed)) {
+        return 'chinese';
+    }
+    // Check for multiple words (phrase)
+    if (/\s/.test(trimmed) && trimmed.split(/\s+/).length > 1) {
+        return 'phrase';
+    }
+    return 'word';
+}
+
+// ===== Primary Lookup: Free Dictionary API =====
+
+/**
+ * Look up a single English word from the Free Dictionary API
+ * @param {string} word
+ * @returns {Promise<Object|null>} dictionary entry or null if not found
+ */
+async function lookupFreeDictionary(word) {
+    try {
+        const response = await fetch(`${DICTIONARY_API}/${encodeURIComponent(word.trim().toLowerCase())}`);
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            throw new Error(`API error: ${response.status}`);
+        }
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) return null;
+
+        const entry = data[0];
+        return {
+            word: entry.word,
+            phonetic: extractPhonetic(entry),
+            audioUrl: extractAudioUrl(entry),
+            meanings: extractMeanings(entry),
+            source: 'free-dictionary',
+        };
+    } catch (error) {
+        console.error('Free Dictionary lookup error:', error);
+        return null;
+    }
+}
+
+// ===== Fallback Lookup: Wiktionary REST API =====
+
+/**
+ * Look up a word or phrase from Wiktionary REST API
+ * @param {string} text - word or phrase
+ * @returns {Promise<Object|null>} dictionary entry or null
+ */
+async function lookupWiktionary(text) {
+    try {
+        // Wiktionary uses underscores for spaces in URLs
+        const slug = text.trim().toLowerCase().replace(/\s+/g, '_');
+        const response = await fetch(`${WIKTIONARY_API}/${encodeURIComponent(slug)}`);
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            throw new Error(`Wiktionary API error: ${response.status}`);
+        }
+        const data = await response.json();
+        return parseWiktionaryResult(text, data);
+    } catch (error) {
+        console.error('Wiktionary lookup error:', error);
+        return null;
+    }
+}
+
+/**
+ * Parse Wiktionary API response into our standard format
+ */
+function parseWiktionaryResult(originalText, data) {
+    // Wiktionary returns { en: [...], fr: [...], ... } keyed by language
+    const enEntries = data.en || data.English || [];
+    if (!Array.isArray(enEntries) || enEntries.length === 0) {
+        // Try any available language
+        const firstLang = Object.keys(data).find(k => Array.isArray(data[k]) && data[k].length > 0);
+        if (!firstLang) return null;
+        return parseWiktionaryEntries(originalText, data[firstLang]);
+    }
+    return parseWiktionaryEntries(originalText, enEntries);
+}
+
+function parseWiktionaryEntries(originalText, entries) {
+    const meanings = [];
+
+    for (const entry of entries) {
+        if (!entry.definitions || entry.definitions.length === 0) continue;
+
+        const defs = entry.definitions.slice(0, 3).map((d) => {
+            // Strip HTML tags from definition
+            const definition = stripHtml(d.definition || '');
+            const examples = (d.examples || []).slice(0, 2).map(e => stripHtml(e));
+            return {
+                definition,
+                example: examples.length > 0 ? examples[0] : null,
+            };
+        }).filter(d => d.definition);
+
+        if (defs.length > 0) {
+            meanings.push({
+                partOfSpeech: entry.partOfSpeech || 'unknown',
+                definitions: defs,
+                synonyms: [],
+            });
+        }
+    }
+
+    if (meanings.length === 0) return null;
+
+    return {
+        word: originalText.trim().toLowerCase(),
+        phonetic: '',
+        audioUrl: null,
+        meanings,
+        source: 'wiktionary',
+    };
+}
+
+/**
+ * Strip HTML tags from a string
+ */
+function stripHtml(html) {
+    if (!html) return '';
+    return html.replace(/<[^>]*>/g, '').trim();
+}
+
+// ===== Translation =====
+
+/**
+ * Translate text between languages via MyMemory API
+ * @param {string} text
+ * @param {string} langPair - e.g. 'en|zh-CN' or 'zh-CN|en'
+ * @returns {Promise<string>} translated text
+ */
+async function translateText(text, langPair) {
+    try {
+        const response = await fetch(
+            `${TRANSLATION_API}?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langPair)}`
+        );
+        if (!response.ok) throw new Error(`Translation API error: ${response.status}`);
+        const data = await response.json();
+        if (data.responseStatus === 200 && data.responseData) {
+            const result = data.responseData.translatedText;
+            // MyMemory returns the input text as-is if it can't translate
+            if (result && result.toLowerCase() !== text.toLowerCase()) {
+                return result;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('Translation error:', error);
+        return null;
+    }
+}
+
+/**
+ * Translate English text to Chinese
+ * @param {string} text
+ * @returns {Promise<string>} Chinese translation
+ */
+export async function translateWord(text) {
+    const result = await translateText(text, 'en|zh-CN');
+    return result || '翻译暂不可用';
+}
+
+/**
+ * Translate Chinese text to English
+ * @param {string} text
+ * @returns {Promise<string|null>} English translation or null
+ */
+async function translateChineseToEnglish(text) {
+    return await translateText(text, 'zh-CN|en');
+}
+
+// ===== Unified Lookup Entry Point =====
+
+/**
+ * Look up a word, phrase, or Chinese expression
+ * Returns dictionary data + translation in a unified format
+ * 
+ * @param {string} text - user input (English word, phrase, or Chinese)
+ * @returns {Promise<{dictData: Object|null, translation: string, inputType: string}>}
+ */
+export async function lookupWord(text) {
+    const inputType = detectInputType(text);
+    const trimmed = text.trim();
+
+    if (inputType === 'chinese') {
+        return await handleChineseLookup(trimmed);
+    } else if (inputType === 'phrase') {
+        return await handlePhraseLookup(trimmed);
+    } else {
+        return await handleWordLookup(trimmed);
+    }
+}
+
+/**
+ * Handle single English word lookup
+ */
+async function handleWordLookup(word) {
+    // Try Free Dictionary API first
+    const [dictData, translation] = await Promise.all([
+        lookupFreeDictionary(word),
+        translateWord(word),
+    ]);
+
+    if (dictData) {
+        return { dictData, translation, inputType: 'word' };
+    }
+
+    // Fallback to Wiktionary
+    const wikiData = await lookupWiktionary(word);
+    if (wikiData) {
+        return { dictData: wikiData, translation, inputType: 'word' };
+    }
+
+    // Translation-only fallback
+    if (translation && translation !== '翻译暂不可用') {
+        return {
+            dictData: createTranslationOnlyResult(word),
+            translation,
+            inputType: 'word',
+        };
+    }
+
+    // DeepSeek LLM fallback
+    const deepSeekResult = await translateWithDeepSeek(word);
+    if (deepSeekResult) {
+        return {
+            dictData: { ...createTranslationOnlyResult(word), source: 'deepseek' },
+            translation: deepSeekResult,
+            inputType: 'word',
+        };
+    }
+
+    return { dictData: null, translation, inputType: 'word' };
+}
+
+/**
+ * Handle English phrase lookup
+ */
+async function handlePhraseLookup(phrase) {
+    // Try Wiktionary first (better for phrases)
+    const [wikiData, translation] = await Promise.all([
+        lookupWiktionary(phrase),
+        translateWord(phrase),
+    ]);
+
+    if (wikiData) {
+        return { dictData: wikiData, translation, inputType: 'phrase' };
+    }
+
+    // Also try Free Dictionary (some compound words work)
+    const dictData = await lookupFreeDictionary(phrase);
+    if (dictData) {
+        return { dictData, translation, inputType: 'phrase' };
+    }
+
+    // Translation-only fallback
+    if (translation && translation !== '翻译暂不可用') {
+        return {
+            dictData: createTranslationOnlyResult(phrase),
+            translation,
+            inputType: 'phrase',
+        };
+    }
+
+    // DeepSeek LLM fallback
+    const deepSeekResult = await translateWithDeepSeek(phrase);
+    if (deepSeekResult) {
+        return {
+            dictData: { ...createTranslationOnlyResult(phrase), source: 'deepseek' },
+            translation: deepSeekResult,
+            inputType: 'phrase',
+        };
+    }
+
+    return { dictData: null, translation, inputType: 'phrase' };
+}
+
+/**
+ * Handle Chinese input lookup
+ */
+async function handleChineseLookup(chineseText) {
+    // Step 1: Translate Chinese → English
+    let englishTranslation = await translateChineseToEnglish(chineseText);
+
+    // DeepSeek fallback for Chinese→English translation
+    if (!englishTranslation) {
+        englishTranslation = await translateWithDeepSeek(chineseText);
+    }
+
+    if (!englishTranslation) {
+        return {
+            dictData: createTranslationOnlyResult(chineseText),
+            translation: chineseText,
+            inputType: 'chinese',
+        };
+    }
+
+    // Step 2: Look up the English translation
+    // Strip trailing punctuation that MyMemory often adds (e.g. "Hello." → "hello")
+    const englishWord = englishTranslation.toLowerCase().trim().replace(/[.!?,;:]+$/, '');
+
+    // Try Free Dictionary for the English result
+    let dictData = await lookupFreeDictionary(englishWord);
+
+    // Fallback to Wiktionary
+    if (!dictData) {
+        dictData = await lookupWiktionary(englishWord);
+    }
+
+    // Build result: show Chinese text as the main word, English as translation
+    const result = dictData ? {
+        ...dictData,
+        word: chineseText,
+        originalWord: dictData.word, // keep original English word
+    } : createTranslationOnlyResult(chineseText);
+
+    return {
+        dictData: result,
+        translation: englishTranslation,
+        inputType: 'chinese',
+    };
+}
+
+/**
+ * Create a minimal result for translation-only display
+ */
+function createTranslationOnlyResult(text) {
+    return {
+        word: text.trim().toLowerCase(),
+        phonetic: '',
+        audioUrl: null,
+        meanings: [],
+        source: 'translation-only',
+    };
+}
+
+// ===== DeepSeek LLM Translation =====
+
+/**
+ * Translate text using DeepSeek LLM API
+ * Auto-detects language: Chinese→English, English/other→Chinese
+ * @param {string} text
+ * @returns {Promise<string|null>} translated text or null
+ */
+export async function translateWithDeepSeek(text) {
+    const apiKey = localStorage.getItem('deepseek-api-key');
+    if (!apiKey) return null;
+
+    try {
+        const response = await fetch(DEEPSEEK_API, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是一个专业翻译助手。识别用户输入的语种：如果是中文则翻译成英文，如果是英文或其他语言则翻译成中文。只返回翻译结果，不要任何解释、标点修改或额外内容。',
+                    },
+                    {
+                        role: 'user',
+                        content: text,
+                    },
+                ],
+                temperature: 0.3,
+                max_tokens: 200,
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('DeepSeek API error:', response.status);
+            return null;
+        }
+
+        const data = await response.json();
+        const result = data.choices?.[0]?.message?.content?.trim();
+        return result || null;
+    } catch (error) {
+        console.error('DeepSeek translation error:', error);
+        return null;
+    }
+}
+
+/**
+ * Test DeepSeek API connectivity with the given key
+ * @param {string} apiKey
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export async function testDeepSeekApi(apiKey) {
+    try {
+        const response = await fetch(DEEPSEEK_API, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [{ role: 'user', content: 'Hello' }],
+                max_tokens: 10,
+            }),
+        });
+
+        if (response.ok) {
+            return { success: true, message: '✅ 连接成功！DeepSeek API 可用。' };
+        } else if (response.status === 401) {
+            return { success: false, message: '❌ API Key 无效，请检查后重试。' };
+        } else {
+            return { success: false, message: `❌ API 错误 (${response.status})，请稍后重试。` };
+        }
+    } catch (error) {
+        return { success: false, message: '❌ 网络连接失败，请检查网络。' };
+    }
+}
+
+// ===== Pronunciation =====
+
+/**
+ * Play pronunciation — 3-tier quality strategy:
+ *   1. Real audio from Free Dictionary API (human recordings)
+ *   2. Google Translate TTS (high-quality neural TTS)
+ *   3. Web Speech API (browser built-in, last resort)
+ * 
+ * @param {string} word
+ * @param {string} lang - language code, default 'en-US'
+ * @param {string|null} audioUrl - optional audio URL from dictionary API
+ */
+export function playPronunciation(word, lang = 'en-US', audioUrl = null) {
+    // Priority 1: Use real human audio from Free Dictionary API
+    if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        audio.play().catch((err) => {
+            console.warn('Audio playback failed, falling back to Google TTS:', err);
+            playWithGoogleTTS(word, lang);
+        });
+        return;
+    }
+
+    // Priority 2: Google Translate TTS
+    playWithGoogleTTS(word, lang);
+}
+
+/**
+ * Play pronunciation using Google Translate TTS (high quality)
+ * Falls back to Web Speech API if Google TTS fails
+ */
+function playWithGoogleTTS(word, lang) {
+    const ttsLang = lang === 'zh-CN' ? 'zh-CN' : 'en';
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodeURIComponent(word)}`;
+
+    const audio = new Audio(url);
+    audio.play().catch((err) => {
+        console.warn('Google TTS failed, falling back to browser TTS:', err);
+        playWithTTS(word, lang);
+    });
+}
+
+/**
+ * Play pronunciation using Web Speech API (last resort fallback)
+ * Tries to select the highest quality voice available
+ */
+function playWithTTS(word, lang) {
+    if (!('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+
+    // Try to pick a high-quality voice
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+        const langPrefix = lang.split('-')[0]; // 'en' from 'en-US'
+        // Prefer premium/enhanced voices, then any matching voice
+        const preferred = voices.find(v =>
+            v.lang.startsWith(langPrefix) &&
+            (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Natural'))
+        ) || voices.find(v =>
+            v.lang.startsWith(langPrefix) && v.localService
+        ) || voices.find(v =>
+            v.lang.startsWith(langPrefix)
+        );
+        if (preferred) utterance.voice = preferred;
+    }
+
+    window.speechSynthesis.speak(utterance);
+}
+
+// ===== Internal helpers =====
+
+function extractPhonetic(entry) {
+    if (entry.phonetic) return entry.phonetic;
+    if (entry.phonetics && entry.phonetics.length > 0) {
+        for (const p of entry.phonetics) {
+            if (p.text) return p.text;
+        }
+    }
+    return '';
+}
+
+function extractAudioUrl(entry) {
+    if (entry.phonetics && entry.phonetics.length > 0) {
+        for (const p of entry.phonetics) {
+            if (p.audio && p.audio.length > 0) return p.audio;
+        }
+    }
+    return null;
+}
+
+function extractMeanings(entry) {
+    if (!entry.meanings) return [];
+    return entry.meanings.map((m) => ({
+        partOfSpeech: m.partOfSpeech || 'unknown',
+        definitions: (m.definitions || []).slice(0, 3).map((d) => ({
+            definition: d.definition,
+            example: d.example || null,
+        })),
+        synonyms: (m.synonyms || []).slice(0, 5),
+    }));
+}

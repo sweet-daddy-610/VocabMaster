@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VocabMaster Widget</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: rgba(15, 15, 35, 0.92);
+            --bg-card: rgba(30, 30, 60, 0.7);
+            --bg-input: rgba(40, 40, 75, 0.6);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-purple: #818cf8;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --border: rgba(148, 163, 184, 0.1);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            width: 320px;
+            height: 440px;
+            overflow: hidden;
+            border-radius: 12px;
+            -webkit-app-region: no-drag;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ===== Header ===== */
+        .widget-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px 10px;
+            -webkit-app-region: drag;
+        }
+
+        .widget-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            letter-spacing: 0.03em;
+        }
+
+        .widget-title span {
+            color: var(--accent-purple);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 6px;
+            -webkit-app-region: no-drag;
+        }
+
+        .icon-btn {
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: var(--bg-card);
+            border-radius: 6px;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: var(--bg-input);
+            color: var(--text-primary);
+        }
+
+        .icon-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ===== Search Mode ===== */
+        .search-mode {
+            padding: 0 16px;
+            display: none;
+        }
+
+        .search-mode.active {
+            display: block;
+        }
+
+        .search-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            transition: all 0.2s;
+        }
+
+        .search-box:focus-within {
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 12px rgba(129, 140, 248, 0.15);
+        }
+
+        .search-box svg {
+            width: 16px;
+            height: 16px;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .search-box input {
+            flex: 1;
+            background: none;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .search-box input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .search-hint {
+            text-align: center;
+            padding: 24px 16px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .search-hint .emoji {
+            font-size: 40px;
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        .search-hint p {
+            line-height: 1.6;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            padding: 0 0;
+        }
+
+        .stat-card {
+            flex: 1;
+            text-align: center;
+            padding: 10px 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            display: block;
+        }
+
+        .stat-value.purple {
+            color: var(--accent-purple);
+        }
+
+        .stat-value.green {
+            color: var(--accent-green);
+        }
+
+        .stat-value.amber {
+            color: var(--accent-amber);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* ===== Review Mode ===== */
+        .review-mode {
+            padding: 0 16px;
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .review-mode.active {
+            display: flex;
+        }
+
+        .review-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: 20px;
+            color: var(--accent-red);
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .review-badge .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .flashcard {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            text-align: center;
+            margin-bottom: 10px;
+            min-height: 100px;
+            max-height: 190px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            overflow-y: auto;
+            flex-shrink: 1;
+        }
+
+        .flashcard:hover {
+            border-color: rgba(129, 140, 248, 0.3);
+        }
+
+        .flashcard-word {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-purple);
+            margin-bottom: 6px;
+        }
+
+        .flashcard-phonetic {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-style: italic;
+            margin-bottom: 16px;
+        }
+
+        .flashcard-answer {
+            opacity: 0;
+            transform: translateY(8px);
+            transition: all 0.3s;
+        }
+
+        .flashcard.revealed .flashcard-answer {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .flashcard-translation {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .flashcard-definition {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .flashcard-tap-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 12px;
+        }
+
+        .flashcard.revealed .flashcard-tap-hint {
+            display: none;
+        }
+
+        .review-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+            margin-top: auto;
+        }
+
+        .review-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .review-btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-forgot {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            color: var(--accent-red);
+        }
+
+        .btn-forgot:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-remembered {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            color: var(--accent-green);
+        }
+
+        .btn-remembered:hover {
+            background: rgba(16, 185, 129, 0.2);
+        }
+
+        .review-progress {
+            text-align: center;
+            margin-top: 6px;
+            margin-bottom: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        /* ===== Done State ===== */
+        .done-state {
+            text-align: center;
+            padding: 30px 16px;
+        }
+
+        .done-state .emoji {
+            font-size: 40px;
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        .done-state h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .done-state p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* ===== Footer ===== */
+        .widget-footer {
+            flex-shrink: 0;
+            padding: 10px 16px;
+            text-align: center;
+        }
+
+        .open-app-btn {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, var(--accent-purple), #6366f1);
+            border: none;
+            border-radius: var(--radius-sm);
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .open-app-btn:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        .open-app-btn:active {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="widget-header">
+        <div class="widget-title">📖 <span>VocabMaster</span></div>
+        <div class="header-actions">
+            <button class="icon-btn" id="refreshBtn" title="刷新">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M21 12a9 9 0 0 1-15.36 6.36"></path>
+                    <path d="M3 12a9 9 0 0 1 15.36-6.36"></path>
+                    <polyline points="3 4 3 10 9 10"></polyline>
+                    <polyline points="21 20 21 14 15 14"></polyline>
+                </svg>
+            </button>
+            <button class="icon-btn" id="closeBtn" title="关闭">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Search Mode -->
+    <div class="search-mode" id="searchMode">
+        <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="searchInput" placeholder="输入单词或短语..." autocomplete="off">
+        </div>
+        <div class="search-hint">
+            <span class="emoji">✨</span>
+            <p>当前没有需要复习的词汇<br>输入单词搜索释义</p>
+        </div>
+        <div class="stats-row" id="statsRow">
+            <div class="stat-card">
+                <span class="stat-value purple" id="statTotal">0</span>
+                <div class="stat-label">总词汇</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value green" id="statMastered">0</span>
+                <div class="stat-label">已掌握</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value amber" id="statLearning">0</span>
+                <div class="stat-label">学习中</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Review Mode -->
+    <div class="review-mode" id="reviewMode">
+        <div class="review-badge">
+            <span class="dot"></span>
+            <span id="dueCountText">0 个词汇待复习</span>
+        </div>
+
+        <div class="flashcard" id="flashcard">
+            <div class="flashcard-word" id="cardWord">—</div>
+            <div class="flashcard-phonetic" id="cardPhonetic"></div>
+            <div class="flashcard-answer" id="cardAnswer">
+                <div class="flashcard-translation" id="cardTranslation">—</div>
+                <div class="flashcard-definition" id="cardDefinition"></div>
+            </div>
+            <div class="flashcard-tap-hint">点击查看释义</div>
+        </div>
+
+        <div class="review-actions" id="reviewActions">
+            <button class="review-btn btn-forgot" id="forgotBtn">
+                <span>✕</span> 忘记了
+            </button>
+            <button class="review-btn btn-remembered" id="rememberedBtn">
+                <span>✓</span> 记住了
+            </button>
+        </div>
+
+        <div class="review-progress" id="reviewProgress"></div>
+
+        <div class="done-state" id="doneState" style="display:none;">
+            <span class="emoji">🎉</span>
+            <h3>复习完成！</h3>
+            <p>所有待复习词汇已完成</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="widget-footer">
+        <button class="open-app-btn" id="openAppBtn">打开 VocabMaster</button>
+    </div>
+
+    <script>
+        // ===== IndexedDB Direct Access =====
+        // Same constants as the main app's storage.js
+        const DB_NAME = 'VocabMasterDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'words';
+
+        // Review intervals (same as ebbinghaus.js)
+        const REVIEW_INTERVALS = [
+            1 * 24 * 60 * 60 * 1000,   // 1 day
+            2 * 24 * 60 * 60 * 1000,   // 2 days
+            4 * 24 * 60 * 60 * 1000,   // 4 days
+            7 * 24 * 60 * 60 * 1000,   // 7 days
+            15 * 24 * 60 * 60 * 1000,  // 15 days
+            30 * 24 * 60 * 60 * 1000,  // 30 days
+        ];
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = () => reject(request.error);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const store = db.createObjectStore(STORE_NAME, { keyPath: 'word' });
+                        store.createIndex('addedAt', 'addedAt', { unique: false });
+                        store.createIndex('nextReviewAt', 'nextReviewAt', { unique: false });
+                        store.createIndex('level', 'level', { unique: false });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+            });
+        }
+
+        async function getAllWords() {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function updateWord(word, updates) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const getReq = store.get(word.toLowerCase());
+                getReq.onsuccess = () => {
+                    const entry = getReq.result;
+                    if (!entry) { resolve(); return; }
+                    const updated = { ...entry, ...updates };
+                    const putReq = store.put(updated);
+                    putReq.onsuccess = () => resolve(updated);
+                    putReq.onerror = () => reject(putReq.error);
+                };
+                getReq.onerror = () => reject(getReq.error);
+            });
+        }
+
+        function getDueWords(allWords) {
+            const now = Date.now();
+            return allWords.filter(w => w.nextReviewAt <= now && w.level < REVIEW_INTERVALS.length);
+        }
+
+        function getNextReviewDate(level) {
+            const now = Date.now();
+            if (level >= REVIEW_INTERVALS.length) {
+                return now + 60 * 24 * 60 * 60 * 1000;
+            }
+            return now + REVIEW_INTERVALS[level];
+        }
+
+        // ===== Widget State =====
+        let dueWords = [];
+        let currentIndex = 0;
+        let isRevealed = false;
+
+        // ===== DOM Elements =====
+        const searchMode = document.getElementById('searchMode');
+        const reviewMode = document.getElementById('reviewMode');
+        const searchInput = document.getElementById('searchInput');
+        const flashcard = document.getElementById('flashcard');
+        const cardWord = document.getElementById('cardWord');
+        const cardPhonetic = document.getElementById('cardPhonetic');
+        const cardTranslation = document.getElementById('cardTranslation');
+        const cardDefinition = document.getElementById('cardDefinition');
+        const cardAnswer = document.getElementById('cardAnswer');
+        const dueCountText = document.getElementById('dueCountText');
+        const reviewProgress = document.getElementById('reviewProgress');
+        const reviewActions = document.getElementById('reviewActions');
+        const doneState = document.getElementById('doneState');
+
+        // ===== Refresh Data =====
+        async function refreshWidget() {
+            try {
+                const allWords = await getAllWords();
+                dueWords = getDueWords(allWords);
+                currentIndex = 0;
+                isRevealed = false;
+
+                // Update stats
+                const mastered = allWords.filter(w => w.level >= REVIEW_INTERVALS.length).length;
+                document.getElementById('statTotal').textContent = allWords.length;
+                document.getElementById('statMastered').textContent = mastered;
+                document.getElementById('statLearning').textContent = allWords.length - mastered;
+
+                // Update tray icon
+                if (window.electronAPI) {
+                    window.electronAPI.updateTray(dueWords.length > 0);
+                }
+
+                if (dueWords.length > 0) {
+                    showReviewMode();
+                } else {
+                    showSearchMode();
+                }
+            } catch (err) {
+                console.error('Widget refresh error:', err);
+                showSearchMode();
+            }
+        }
+
+        function showSearchMode() {
+            searchMode.classList.add('active');
+            reviewMode.classList.remove('active');
+            searchInput.focus();
+        }
+
+        function showReviewMode() {
+            searchMode.classList.remove('active');
+            reviewMode.classList.add('active');
+            dueCountText.textContent = `${dueWords.length} 个词汇待复习`;
+            showCard();
+        }
+
+        function showCard() {
+            if (currentIndex >= dueWords.length) {
+                showDoneState();
+                return;
+            }
+
+            const word = dueWords[currentIndex];
+            flashcard.classList.remove('revealed');
+            isRevealed = false;
+
+            cardWord.textContent = word.word;
+            cardPhonetic.textContent = word.phonetic || '';
+            cardTranslation.textContent = word.translation || '—';
+
+            // Show first definition if available
+            const firstMeaning = word.meanings && word.meanings[0];
+            if (firstMeaning && firstMeaning.definitions && firstMeaning.definitions[0]) {
+                const partOfSpeech = firstMeaning.partOfSpeech || '';
+                const def = firstMeaning.definitions[0].definition || '';
+                cardDefinition.textContent = partOfSpeech ? `[${partOfSpeech}] ${def}` : def;
+            } else {
+                cardDefinition.textContent = '';
+            }
+
+            reviewProgress.textContent = `${currentIndex + 1} / ${dueWords.length}`;
+            reviewActions.style.display = 'flex';
+            doneState.style.display = 'none';
+        }
+
+        function showDoneState() {
+            flashcard.style.display = 'none';
+            reviewActions.style.display = 'none';
+            reviewProgress.textContent = '';
+            doneState.style.display = 'block';
+
+            // Update tray — no more due words
+            if (window.electronAPI) {
+                window.electronAPI.updateTray(false);
+            }
+
+            // Switch to search mode after 2 seconds
+            setTimeout(() => {
+                flashcard.style.display = '';
+                doneState.style.display = 'none';
+                refreshWidget();
+            }, 2000);
+        }
+
+        async function handleReview(remembered) {
+            const word = dueWords[currentIndex];
+            if (!word) return;
+
+            const newLevel = remembered
+                ? Math.min(word.level + 1, REVIEW_INTERVALS.length)
+                : 0;
+
+            await updateWord(word.word, {
+                level: newLevel,
+                reviewCount: (word.reviewCount || 0) + 1,
+                nextReviewAt: getNextReviewDate(newLevel),
+                lastReviewedAt: Date.now(),
+            });
+
+            currentIndex++;
+            showCard();
+        }
+
+        // ===== Event Listeners =====
+        // Flashcard reveal
+        flashcard.addEventListener('click', () => {
+            if (!isRevealed) {
+                flashcard.classList.add('revealed');
+                isRevealed = true;
+            }
+        });
+
+        // Review buttons
+        document.getElementById('forgotBtn').addEventListener('click', () => handleReview(false));
+        document.getElementById('rememberedBtn').addEventListener('click', () => handleReview(true));
+
+        // Search — open main app
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const term = searchInput.value.trim();
+                if (term && window.electronAPI) {
+                    window.electronAPI.openMainApp(term);
+                    searchInput.value = '';
+                }
+            }
+        });
+
+        // Refresh button
+        document.getElementById('refreshBtn').addEventListener('click', refreshWidget);
+
+        // Close button
+        document.getElementById('closeBtn').addEventListener('click', () => {
+            if (window.electronAPI) {
+                window.electronAPI.closeWidget();
+            }
+        });
+
+        // Open app button
+        document.getElementById('openAppBtn').addEventListener('click', () => {
+            if (window.electronAPI) {
+                window.electronAPI.openMainApp('');
+            }
+        });
+
+        // IPC listeners
+        if (window.electronAPI) {
+            window.electronAPI.onWidgetShown(() => refreshWidget());
+            window.electronAPI.onCheckReviews(() => refreshWidget());
+        }
+
+        // Initial load
+        refreshWidget();
+    </script>
+</body>
+
+</html>

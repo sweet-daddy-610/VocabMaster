@@ -1,0 +1,258 @@
+/* ===== Settings Modal ===== */
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+.settings-overlay.hidden {
+    display: none;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.settings-modal {
+    background: linear-gradient(145deg, #1a1a35, #12122a);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    width: 90%;
+    max-width: 380px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(30px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-header h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #e0e0ff;
+    margin: 0;
+}
+
+.settings-close-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    color: #8888aa;
+    font-size: 1.4rem;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.settings-close-btn:hover {
+    background: rgba(255, 80, 80, 0.15);
+    color: #ff6666;
+}
+
+.settings-body {
+    padding: 20px 24px 24px;
+}
+
+.settings-section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #c0c0e0;
+    margin: 0 0 8px;
+}
+
+.settings-desc {
+    font-size: 0.82rem;
+    color: #7777aa;
+    line-height: 1.5;
+    margin: 0 0 18px;
+}
+
+.settings-field {
+    margin-bottom: 16px;
+}
+
+.settings-field label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #9999cc;
+    margin-bottom: 8px;
+}
+
+.api-key-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.api-key-input-row input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: #e0e0ff;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.api-key-input-row input:focus {
+    border-color: rgba(100, 140, 255, 0.5);
+}
+
+.api-key-input-row input::placeholder {
+    color: #555577;
+}
+
+.toggle-visibility-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    width: 42px;
+    color: #7777aa;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.toggle-visibility-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #aaaadd;
+}
+
+.settings-hint {
+    font-size: 0.78rem;
+    color: #6666aa;
+    margin: 8px 0 0;
+}
+
+.settings-hint a {
+    color: #6688ff;
+    text-decoration: none;
+}
+
+.settings-hint a:hover {
+    text-decoration: underline;
+}
+
+.settings-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.settings-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.settings-btn.test-btn {
+    background: rgba(255, 255, 255, 0.06);
+    color: #9999cc;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-btn.test-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #bbbbee;
+}
+
+.settings-btn.save-btn {
+    background: linear-gradient(135deg, #4466ff, #6644ff);
+    color: white;
+}
+
+.settings-btn.save-btn:hover {
+    background: linear-gradient(135deg, #5577ff, #7755ff);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(68, 102, 255, 0.3);
+}
+
+.api-key-status {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.api-key-status.hidden {
+    display: none;
+}
+
+.api-key-status.success {
+    background: rgba(40, 200, 120, 0.1);
+    border: 1px solid rgba(40, 200, 120, 0.2);
+    color: #44cc88;
+}
+
+.api-key-status.error {
+    background: rgba(255, 80, 80, 0.1);
+    border: 1px solid rgba(255, 80, 80, 0.2);
+    color: #ff6666;
+}
+
+/* DeepSeek source badge */
+.translation-source {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.translation-source.deepseek {
+    background: linear-gradient(135deg, rgba(68, 102, 255, 0.15), rgba(102, 68, 255, 0.15));
+    color: #8899ff;
+    border: 1px solid rgba(68, 102, 255, 0.2);
+}
