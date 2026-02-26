@@ -563,6 +563,62 @@ function playWithTTS(word, lang) {
     window.speechSynthesis.speak(utterance);
 }
 
+// ===== Word Extras: Conjugations, Synonyms, Antonyms =====
+
+const CONJUGATIONS_PROMPT = `你是英语语法专家。分析输入的英语单词或短语，找出核心动词，给出该动词的完整时态变形。
+仅返回如下JSON（不含任何其他内容或代码块标记）：
+{"coreVerb":"<核心动词原形>","forms":{"base":"<原形>","pastTense":"<过去式>","pastParticiple":"<过去分词>","presentParticiple":"<现在分词>","thirdPerson":"<第三人称单数>"}}
+若输入不含动词（如纯名词/形容词），返回：{"coreVerb":null,"forms":null}`;
+
+const SYNONYMS_PROMPT = `你是英语词汇专家。给出输入英语单词或短语的3-5个近义词，每个附上简短中文解释。
+仅返回如下JSON数组（不含任何其他内容或代码块标记）：
+[{"word":"<近义词>","explanation":"<中文简释>"}]`;
+
+const ANTONYMS_PROMPT = `你是英语词汇专家。给出输入英语单词或短语的3-5个反义词，每个附上简短中文解释。
+仅返回如下JSON数组（不含任何其他内容或代码块标记）：
+[{"word":"<反义词>","explanation":"<中文简释>"}]
+若无明显反义词则返回空数组[]。`;
+
+/**
+ * Fetch word extras (conjugations / synonyms / antonyms) via the configured LLM
+ * @param {string} word
+ * @param {'conjugations'|'synonyms'|'antonyms'} type
+ * @returns {Promise<Object|Array|null>}
+ */
+export async function fetchWordExtras(word, type) {
+    const provider = localStorage.getItem('llm-provider') || 'deepseek';
+    const apiKey = localStorage.getItem('llm-api-key');
+    if (!apiKey) return null;
+
+    const prompts = {
+        conjugations: CONJUGATIONS_PROMPT,
+        synonyms: SYNONYMS_PROMPT,
+        antonyms: ANTONYMS_PROMPT,
+    };
+    const prompt = prompts[type];
+    if (!prompt) return null;
+
+    try {
+        let raw;
+        if (provider === 'gemini') {
+            raw = await callGeminiApi(apiKey, prompt, word);
+        } else {
+            raw = await callOpenAICompatibleApi(
+                LLM_PROVIDERS.deepseek.endpoint, apiKey,
+                LLM_PROVIDERS.deepseek.model, prompt, word
+            );
+        }
+        if (!raw) return null;
+
+        // Strip potential markdown code fences
+        const jsonStr = raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error(`fetchWordExtras(${type}) error:`, error);
+        return null;
+    }
+}
+
 // ===== Internal helpers =====
 
 function extractPhonetic(entry) {

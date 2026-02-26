@@ -52,6 +52,7 @@ export async function saveWord(wordData) {
         const entry = {
             word: wordData.word.toLowerCase(),
             phonetic: wordData.phonetic || '',
+            audioUrl: wordData.audioUrl || null,
             meanings: wordData.meanings || [],
             translation: wordData.translation || '',
             addedAt: Date.now(),

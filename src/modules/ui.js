@@ -67,6 +67,10 @@ export function showResultState(state) {
 export function renderResult(dictData, translation, isSaved, inputType = 'word') {
     showResultState('result');
 
+    // Show retranslate button whenever a result is rendered
+    const retranslateBtn = document.getElementById('retranslateBtn');
+    if (retranslateBtn) retranslateBtn.classList.remove('hidden');
+
     // Word title & phonetic
     document.getElementById('wordTitle').textContent = dictData.word;
     document.getElementById('wordPhonetic').textContent = dictData.phonetic || '';
@@ -412,6 +416,130 @@ export function updateHeaderStats(totalWords, dueWords) {
     } else {
         reviewBadge.classList.add('hidden');
     }
+}
+
+// ===== Extra Panels (Conjugations / Synonyms / Antonyms) =====
+
+const EXTRA_PANEL_CONFIG = [
+    { type: 'conjugations', label: '时态变形' },
+    { type: 'synonyms', label: '近义词' },
+    { type: 'antonyms', label: '反义词' },
+];
+
+/**
+ * Render the three collapsible extra panels below the definitions section.
+ * Returns a map: { conjugations, synonyms, antonyms } → { panel, header, body }
+ */
+export function renderExtraPanels() {
+    const existing = document.getElementById('extrasSection');
+    if (existing) existing.remove();
+
+    const defSection = document.getElementById('definitionsSection');
+    if (!defSection) return {};
+
+    const extrasEl = document.createElement('div');
+    extrasEl.className = 'extras-section';
+    extrasEl.id = 'extrasSection';
+    defSection.after(extrasEl);
+
+    const panels = {};
+    for (const { type, label } of EXTRA_PANEL_CONFIG) {
+        const panel = document.createElement('div');
+        panel.className = 'extra-panel';
+        panel.id = `extra-panel-${type}`;
+
+        const header = document.createElement('div');
+        header.className = 'extra-panel-header';
+        header.innerHTML = `
+            <span class="extra-panel-title">${label}</span>
+            <svg class="extra-panel-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        `;
+
+        const body = document.createElement('div');
+        body.className = 'extra-panel-body';
+
+        panel.appendChild(header);
+        panel.appendChild(body);
+        extrasEl.appendChild(panel);
+
+        panels[type] = { panel, header, body };
+    }
+    return panels;
+}
+
+/** Show loading spinner inside a panel body */
+export function setExtraPanelLoading(body) {
+    body.innerHTML = `
+        <div class="extra-panel-loading">
+            <div class="extra-loading-spinner"></div>
+            <span>正在查询...</span>
+        </div>
+    `;
+}
+
+/** Show error message inside a panel body */
+export function setExtraPanelError(body, message = '查询失败，请先在设置中配置 AI API Key') {
+    body.innerHTML = `<p class="extra-panel-error">${message}</p>`;
+}
+
+/** Render conjugation table into panel body */
+export function renderConjugations(body, data) {
+    if (!data || !data.coreVerb || !data.forms) {
+        body.innerHTML = '<p class="extra-panel-empty">该词无动词时态变形</p>';
+        return;
+    }
+    const { coreVerb, forms } = data;
+    const rows = [
+        ['原形 (Base)', forms.base],
+        ['过去式 (Past Tense)', forms.pastTense],
+        ['过去分词 (Past Participle)', forms.pastParticiple],
+        ['现在分词 (Present Participle)', forms.presentParticiple],
+        ['第三人称单数 (3rd Person)', forms.thirdPerson],
+    ].filter(([, v]) => v);
+
+    const coreNote = coreVerb && forms.base && coreVerb !== forms.base
+        ? `<p class="extra-core-verb">核心动词：<strong>${escapeHtml(coreVerb)}</strong></p>`
+        : '';
+
+    body.innerHTML = `
+        <div class="extra-panel-content">
+            ${coreNote}
+            <table class="conjugation-table">
+                <tbody>
+                    ${rows.map(([label, val]) => `
+                        <tr>
+                            <td class="conj-label">${label}</td>
+                            <td class="conj-value">${escapeHtml(val)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+/** Render synonyms or antonyms list into panel body */
+export function renderWordList(body, items, type) {
+    if (!Array.isArray(items) || items.length === 0) {
+        const msg = type === 'antonyms' ? '暂无明显反义词' : '暂无近义词数据';
+        body.innerHTML = `<p class="extra-panel-empty">${msg}</p>`;
+        return;
+    }
+    const tags = items.map(item => `
+        <div class="extra-word-item">
+            <span class="extra-word-tag" data-word="${escapeHtml(item.word)}">${escapeHtml(item.word)}</span>
+            <span class="extra-word-explanation">${escapeHtml(item.explanation || '')}</span>
+        </div>
+    `).join('');
+    body.innerHTML = `<div class="extra-word-list">${tags}</div>`;
+
+    body.querySelectorAll('.extra-word-tag').forEach(tag => {
+        tag.addEventListener('click', () => {
+            window.dispatchEvent(new CustomEvent('lookupWord', { detail: tag.dataset.word }));
+        });
+    });
 }
 
 // ===== Helpers =====

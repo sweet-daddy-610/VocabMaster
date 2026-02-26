@@ -3,8 +3,8 @@
  * Wires together all modules and handles user interactions
  */
 
-import { lookupWord, playPronunciation, detectInputType, testDeepSeekApi } from './modules/dictionary.js';
-import { openDB, saveWord, getWord, getAllWords, deleteWord, getWordCount, exportAllWords, importWords } from './modules/storage.js';
+import { lookupWord, playPronunciation, detectInputType, testDeepSeekApi, translateWithDeepSeek, fetchWordExtras } from './modules/dictionary.js';
+import { openDB, saveWord, getWord, getAllWords, deleteWord, getWordCount, exportAllWords, importWords, updateWord } from './modules/storage.js';
 import { getDueWords, getDueWordCount, markAsReviewed, getNextReviewTime, getReviewStats } from './modules/ebbinghaus.js';
 import { requestPermission, scheduleReviewCheck } from './modules/notification.js';
 import {
@@ -12,6 +12,8 @@ import {
     renderHistoryStats, renderHistoryList, showReviewState,
     renderFlashcard, renderReviewComplete, renderNextReviewInfo,
     updateHeaderStats,
+    renderExtraPanels, setExtraPanelLoading, setExtraPanelError,
+    renderConjugations, renderWordList,
 } from './modules/ui.js';
 
 // ===== App State =====
@@ -19,6 +21,7 @@ let reviewQueue = [];
 let reviewIndex = 0;
 let reviewRemembered = 0;
 let reviewForgot = 0;
+let currentSaveKey = null; // tracks the DB key of the currently displayed word
 
 // ===== Initialization =====
 async function init() {
@@ -55,6 +58,9 @@ function setupEventListeners() {
     searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') handleSearch();
     });
+
+    // Retranslate button
+    document.getElementById('retranslateBtn').addEventListener('click', handleRetranslate);
 
     // Sound button
     document.getElementById('soundBtn').addEventListener('click', () => {
@@ -144,32 +150,45 @@ async function handleSearch() {
     showResultState('loading');
 
     try {
-        // Unified lookup: returns { dictData, translation, inputType }
+        const inputType = detectInputType(text);
+
+        // Check DB cache first — use stored data without any network calls
+        const cached = await getWord(text);
+        if (cached) {
+            renderFromCache(cached, inputType);
+            await refreshStats();
+            return;
+        }
+
+        // No cached entry — full network lookup
         const result = await lookupWord(text);
-        const { dictData, translation, inputType } = result;
+        const { dictData, translation, inputType: resolvedInputType } = result;
 
         if (!dictData) {
-            const errorMsg = inputType === 'chinese'
+            const errorMsg = resolvedInputType === 'chinese'
                 ? '未能翻译该中文，请尝试其他表达'
                 : '未找到该单词或短语，请检查拼写后重试';
             showError(errorMsg);
             return;
         }
 
-        // Check if already saved
+        // dictData.word may differ from the raw input (e.g. plural → base form)
         const saveKey = dictData.word;
-        const existing = await getWord(saveKey);
-        const isSaved = !!existing;
+        currentSaveKey = saveKey;
 
-        // Render result with inputType info
-        renderResult(dictData, translation, isSaved, inputType);
+        // Check whether the normalised form is already saved (handles plural variants etc.)
+        const existing = await getWord(saveKey);
+        renderResult(dictData, translation, !!existing, resolvedInputType);
+
+        // Render and wire up extra collapsible panels
+        const extraPanels = renderExtraPanels();
+        setupExtraPanels(saveKey, extraPanels);
 
         // Store audioUrl on sound button for playback
-        const soundBtn = document.getElementById('soundBtn');
-        soundBtn.dataset.audioUrl = dictData.audioUrl || '';
+        document.getElementById('soundBtn').dataset.audioUrl = dictData.audioUrl || '';
 
-        // Auto-save if not already saved
-        if (!isSaved) {
+        // Auto-save if not already saved under the normalised key
+        if (!existing) {
             await saveWord({
                 word: saveKey,
                 phonetic: dictData.phonetic,
@@ -181,11 +200,135 @@ async function handleSearch() {
             document.getElementById('savedIndicator').classList.remove('hidden');
         }
 
-        // Refresh header stats
         await refreshStats();
     } catch (error) {
         console.error('Search error:', error);
         showError('查询失败，请检查网络连接后重试');
+    }
+}
+
+/**
+ * Render a result directly from a cached DB entry — no network calls.
+ */
+function renderFromCache(entry, inputType) {
+    currentSaveKey = entry.word;
+
+    const dictData = {
+        word: entry.word,
+        phonetic: entry.phonetic || '',
+        audioUrl: entry.audioUrl || null,
+        meanings: entry.meanings || [],
+        // Preserve translation-only appearance for entries without definitions
+        source: (entry.meanings && entry.meanings.length > 0) ? null : 'translation-only',
+    };
+
+    renderResult(dictData, entry.translation, true, inputType);
+    document.getElementById('soundBtn').dataset.audioUrl = dictData.audioUrl || '';
+
+    const extraPanels = renderExtraPanels();
+    setupExtraPanels(entry.word, extraPanels);
+}
+
+// ===== Extra Panels =====
+
+/**
+ * Attach click-to-expand handlers to the three extra panels.
+ * On first expand, loads data from DB cache or LLM.
+ */
+function setupExtraPanels(word, panels) {
+    for (const [type, { panel, header, body }] of Object.entries(panels)) {
+        header.addEventListener('click', () => {
+            const isExpanded = panel.classList.toggle('expanded');
+            if (isExpanded && body.dataset.status !== 'loaded') {
+                loadExtraPanel(word, type, body);
+            }
+        });
+    }
+}
+
+async function loadExtraPanel(word, type, body) {
+    if (body.dataset.status === 'loading' || body.dataset.status === 'loaded') return;
+    body.dataset.status = 'loading';
+    setExtraPanelLoading(body);
+
+    // Check DB cache first
+    const cacheKey = `${type}Data`;
+    const entry = await getWord(word);
+    const cached = entry?.[cacheKey];
+
+    if (cached !== undefined && cached !== null) {
+        renderExtraContent(type, body, cached);
+        body.dataset.status = 'loaded';
+        return;
+    }
+
+    // Fetch from LLM
+    const data = await fetchWordExtras(word, type);
+    if (data !== null) {
+        // Persist to DB (silently fails if word entry doesn't exist yet)
+        await updateWord(word, { [cacheKey]: data });
+        renderExtraContent(type, body, data);
+        body.dataset.status = 'loaded';
+    } else {
+        const apiKey = localStorage.getItem('llm-api-key');
+        const msg = apiKey ? '查询失败，请重试' : '请先在设置中配置 AI API Key';
+        setExtraPanelError(body, msg);
+        body.dataset.status = 'error';
+    }
+}
+
+function renderExtraContent(type, body, data) {
+    if (type === 'conjugations') {
+        renderConjugations(body, data);
+    } else {
+        renderWordList(body, data, type);
+    }
+}
+
+// ===== Retranslate =====
+async function handleRetranslate() {
+    const apiKey = localStorage.getItem('llm-api-key');
+    if (!apiKey) {
+        showToast('请先在设置中配置 AI API Key', 'info');
+        return;
+    }
+
+    const text = document.getElementById('searchInput').value.trim();
+    if (!text) return;
+
+    const btn = document.getElementById('retranslateBtn');
+    const spanEl = btn.querySelector('span');
+    const originalText = spanEl.textContent;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    spanEl.textContent = '翻译中...';
+
+    try {
+        const newTranslation = await translateWithDeepSeek(text);
+        if (newTranslation) {
+            document.getElementById('translationContent').textContent = newTranslation;
+
+            // Update saved word in DB if it exists
+            if (currentSaveKey) {
+                const existing = await getWord(currentSaveKey);
+                if (existing) {
+                    await updateWord(currentSaveKey, { translation: newTranslation });
+                }
+            }
+
+            const provider = localStorage.getItem('llm-provider') || 'deepseek';
+            const providerName = provider === 'gemini' ? 'Gemini' : 'DeepSeek';
+            showToast(`已使用 ${providerName} AI 重新翻译`, 'success');
+        } else {
+            showToast('AI 翻译失败，请检查 API Key 是否有效', 'error');
+        }
+    } catch (error) {
+        console.error('Retranslate error:', error);
+        showToast('翻译失败，请重试', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        spanEl.textContent = originalText;
     }
 }
 
