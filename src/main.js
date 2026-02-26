@@ -359,6 +359,19 @@ function shuffleArray(array) {
 document.addEventListener('DOMContentLoaded', init);
 
 // ===== Settings =====
+const PROVIDER_CONFIG = {
+    deepseek: {
+        placeholder: 'sk-...',
+        linkUrl: 'https://platform.deepseek.com/api_keys',
+        linkText: 'platform.deepseek.com',
+    },
+    gemini: {
+        placeholder: 'AIza...',
+        linkUrl: 'https://aistudio.google.com/apikey',
+        linkText: 'aistudio.google.com',
+    },
+};
+
 function setupSettingsListeners() {
     const settingsBtn = document.getElementById('settingsNavBtn');
     const overlay = document.getElementById('settingsOverlay');
@@ -368,15 +381,34 @@ function setupSettingsListeners() {
     const testBtn = document.getElementById('testApiKeyBtn');
     const saveBtn = document.getElementById('saveApiKeyBtn');
     const statusEl = document.getElementById('apiKeyStatus');
-    const deepseekLink = document.getElementById('deepseekLink');
+    const apiKeyLink = document.getElementById('apiKeyLink');
+    const apiKeyHint = document.getElementById('apiKeyHint');
+    const providerSelect = document.getElementById('llmProvider');
+
+    function updateProviderUI(provider) {
+        const config = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG.deepseek;
+        apiKeyInput.placeholder = config.placeholder;
+        apiKeyLink.href = config.linkUrl;
+        apiKeyLink.textContent = config.linkText;
+        // Load this provider's saved key
+        const savedKey = localStorage.getItem('llm-api-key') || '';
+        const savedProvider = localStorage.getItem('llm-provider') || 'deepseek';
+        apiKeyInput.value = savedProvider === provider ? savedKey : '';
+    }
+
+    // Provider change
+    providerSelect.addEventListener('change', () => {
+        updateProviderUI(providerSelect.value);
+        statusEl.classList.add('hidden');
+    });
 
     // Open settings modal
     settingsBtn.addEventListener('click', () => {
-        overlay.classList.remove('hidden');
-        // Load saved key
-        const savedKey = localStorage.getItem('deepseek-api-key') || '';
-        apiKeyInput.value = savedKey;
+        const savedProvider = localStorage.getItem('llm-provider') || 'deepseek';
+        providerSelect.value = savedProvider;
+        updateProviderUI(savedProvider);
         statusEl.classList.add('hidden');
+        overlay.classList.remove('hidden');
     });
 
     // Close
@@ -393,11 +425,13 @@ function setupSettingsListeners() {
     // Save
     saveBtn.addEventListener('click', () => {
         const key = apiKeyInput.value.trim();
+        const provider = providerSelect.value;
+        localStorage.setItem('llm-provider', provider);
         if (key) {
-            localStorage.setItem('deepseek-api-key', key);
-            showToast('API Key 已保存', 'success');
+            localStorage.setItem('llm-api-key', key);
+            showToast(`${PROVIDER_CONFIG[provider]?.linkText || provider} API Key 已保存`, 'success');
         } else {
-            localStorage.removeItem('deepseek-api-key');
+            localStorage.removeItem('llm-api-key');
             showToast('API Key 已清除', 'info');
         }
         overlay.classList.add('hidden');
@@ -416,7 +450,8 @@ function setupSettingsListeners() {
         testBtn.textContent = '测试中...';
         statusEl.classList.add('hidden');
 
-        const result = await testDeepSeekApi(key);
+        const provider = providerSelect.value;
+        const result = await testDeepSeekApi(key, provider);
 
         statusEl.textContent = result.message;
         statusEl.className = `api-key-status ${result.success ? 'success' : 'error'}`;
@@ -424,10 +459,10 @@ function setupSettingsListeners() {
         testBtn.textContent = '测试连接';
     });
 
-    // Open external link (Electron support)
-    deepseekLink.addEventListener('click', (e) => {
+    // Open external link
+    apiKeyLink.addEventListener('click', (e) => {
         e.preventDefault();
-        const url = deepseekLink.href;
+        const url = apiKeyLink.href;
         if (window.electronAPI && window.electronAPI.openExternal) {
             window.electronAPI.openExternal(url);
         } else {

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
     rel="stylesheet">
-  <script src="./assets/index-D8M9yAHd.js"></script>
+  <script src="./assets/index-CYNqEF85.js"></script>
 </head>
 
 <body>
@@ -269,8 +269,15 @@
       </div>
       <div class="settings-body">
         <div class="settings-section">
-          <h3>🤖 DeepSeek AI 翻译</h3>
-          <p class="settings-desc">配置 DeepSeek API Key 后，当词典无法查到结果时，将自动调用 AI 进行智能翻译。</p>
+          <h3>🤖 AI 翻译</h3>
+          <p class="settings-desc">配置大模型 API Key 后，当词典无法查到结果时，将自动调用 AI 进行智能翻译。</p>
+          <div class="settings-field">
+            <label for="llmProvider">大模型服务</label>
+            <select id="llmProvider" class="settings-select">
+              <option value="deepseek">DeepSeek</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
           <div class="settings-field">
             <label for="deepseekApiKey">API Key</label>
             <div class="api-key-input-row">
@@ -282,8 +289,8 @@
                 </svg>
               </button>
             </div>
-            <p class="settings-hint">前往 <a href="https://platform.deepseek.com/api_keys"
-                id="deepseekLink">platform.deepseek.com</a> 获取 API Key</p>
+            <p class="settings-hint" id="apiKeyHint">前往 <a href="https://platform.deepseek.com/api_keys"
+                id="apiKeyLink">platform.deepseek.com</a> 获取 API Key</p>
           </div>
           <div class="settings-actions">
             <button class="settings-btn test-btn" id="testApiKeyBtn">测试连接</button>

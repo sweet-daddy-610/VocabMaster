@@ -12,7 +12,6 @@
 const DICTIONARY_API = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const WIKTIONARY_API = 'https://en.wiktionary.org/api/rest_v1/page/definition';
 const TRANSLATION_API = 'https://api.mymemory.translated.net/get';
-const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
 
 // ===== Input Detection =====
 
@@ -361,86 +360,133 @@ function createTranslationOnlyResult(text) {
     };
 }
 
-// ===== DeepSeek LLM Translation =====
+// ===== LLM Translation (Multi-Provider) =====
+
+const LLM_PROVIDERS = {
+    deepseek: {
+        name: 'DeepSeek',
+        endpoint: 'https://api.deepseek.com/chat/completions',
+        model: 'deepseek-chat',
+    },
+    gemini: {
+        name: 'Google Gemini',
+        getEndpoint: (apiKey) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    },
+};
+
+const TRANSLATION_PROMPT = '你是一个专业翻译助手。识别用户输入的语种：如果是中文则翻译成英文，如果是英文或其他语言则翻译成中文。只返回翻译结果，不要任何解释、标点修改或额外内容。';
 
 /**
- * Translate text using DeepSeek LLM API
- * Auto-detects language: Chinese→English, English/other→Chinese
+ * Translate text using the user's selected LLM provider
  * @param {string} text
- * @returns {Promise<string|null>} translated text or null
+ * @returns {Promise<string|null>}
  */
 export async function translateWithDeepSeek(text) {
-    const apiKey = localStorage.getItem('deepseek-api-key');
+    const provider = localStorage.getItem('llm-provider') || 'deepseek';
+    const apiKey = localStorage.getItem('llm-api-key');
     if (!apiKey) return null;
 
     try {
-        const response = await fetch(DEEPSEEK_API, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages: [
-                    {
-                        role: 'system',
-                        content: '你是一个专业翻译助手。识别用户输入的语种：如果是中文则翻译成英文，如果是英文或其他语言则翻译成中文。只返回翻译结果，不要任何解释、标点修改或额外内容。',
-                    },
-                    {
-                        role: 'user',
-                        content: text,
-                    },
-                ],
-                temperature: 0.3,
-                max_tokens: 200,
-            }),
-        });
-
-        if (!response.ok) {
-            console.error('DeepSeek API error:', response.status);
-            return null;
+        if (provider === 'gemini') {
+            return await callGeminiApi(apiKey, TRANSLATION_PROMPT, text);
+        } else {
+            return await callOpenAICompatibleApi(LLM_PROVIDERS.deepseek.endpoint, apiKey, LLM_PROVIDERS.deepseek.model, TRANSLATION_PROMPT, text);
         }
-
-        const data = await response.json();
-        const result = data.choices?.[0]?.message?.content?.trim();
-        return result || null;
     } catch (error) {
-        console.error('DeepSeek translation error:', error);
+        console.error(`${provider} translation error:`, error);
         return null;
     }
 }
 
 /**
- * Test DeepSeek API connectivity with the given key
+ * Test LLM API connectivity
+ * @param {string} provider - 'deepseek' or 'gemini'
  * @param {string} apiKey
  * @returns {Promise<{success: boolean, message: string}>}
  */
-export async function testDeepSeekApi(apiKey) {
-    try {
-        const response = await fetch(DEEPSEEK_API, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages: [{ role: 'user', content: 'Hello' }],
-                max_tokens: 10,
-            }),
-        });
+export async function testDeepSeekApi(apiKey, provider = null) {
+    provider = provider || localStorage.getItem('llm-provider') || 'deepseek';
+    const providerName = LLM_PROVIDERS[provider]?.name || provider;
 
-        if (response.ok) {
-            return { success: true, message: '✅ 连接成功！DeepSeek API 可用。' };
-        } else if (response.status === 401) {
-            return { success: false, message: '❌ API Key 无效，请检查后重试。' };
+    try {
+        let result;
+        if (provider === 'gemini') {
+            result = await callGeminiApi(apiKey, 'Reply with OK', 'Hello');
         } else {
-            return { success: false, message: `❌ API 错误 (${response.status})，请稍后重试。` };
+            result = await callOpenAICompatibleApi(LLM_PROVIDERS.deepseek.endpoint, apiKey, LLM_PROVIDERS.deepseek.model, 'Reply with OK', 'Hello');
+        }
+
+        if (result) {
+            return { success: true, message: `✅ 连接成功！${providerName} API 可用。` };
+        } else {
+            return { success: false, message: `❌ ${providerName} API 返回空结果。` };
         }
     } catch (error) {
-        return { success: false, message: '❌ 网络连接失败，请检查网络。' };
+        const msg = error.message || '';
+        if (msg.includes('401') || msg.includes('403')) {
+            return { success: false, message: `❌ API Key 无效，请检查后重试。` };
+        }
+        return { success: false, message: `❌ ${providerName} 连接失败: ${msg}` };
     }
+}
+
+/**
+ * Call OpenAI-compatible API (DeepSeek, etc.)
+ */
+async function callOpenAICompatibleApi(endpoint, apiKey, model, systemPrompt, userMessage) {
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userMessage },
+            ],
+            temperature: 0.3,
+            max_tokens: 200,
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content?.trim() || null;
+}
+
+/**
+ * Call Google Gemini API
+ */
+async function callGeminiApi(apiKey, systemPrompt, userMessage) {
+    const endpoint = LLM_PROVIDERS.gemini.getEndpoint(apiKey);
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            system_instruction: {
+                parts: [{ text: systemPrompt }],
+            },
+            contents: [{
+                parts: [{ text: userMessage }],
+            }],
+            generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 200,
+            },
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
 }
 
 // ===== Pronunciation =====
