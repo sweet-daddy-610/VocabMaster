@@ -19,3 +19,6 @@ Thumbs.db
 
 # Gemini agent data
 .gemini/
+
+# Local reports (not for repo)
+BUG_FIX_REPORT.md
