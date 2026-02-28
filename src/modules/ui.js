@@ -147,11 +147,25 @@ export function renderResult(dictData, translation, isSaved, inputType = 'word')
                 text.textContent = def.definition;
                 item.appendChild(text);
 
-                if (def.example) {
-                    const example = document.createElement('p');
-                    example.className = 'definition-example';
-                    example.textContent = `"${def.example}"`;
-                    item.appendChild(example);
+                if (def.translationZh) {
+                    const zh = document.createElement('p');
+                    zh.className = 'definition-zh';
+                    zh.textContent = def.translationZh;
+                    item.appendChild(zh);
+                }
+
+                // Render examples (up to 3)
+                const examples = def.examples || (def.example ? [def.example] : []);
+                if (examples.length > 0) {
+                    const examplesContainer = document.createElement('div');
+                    examplesContainer.className = 'definition-examples';
+                    examples.slice(0, 3).forEach((ex) => {
+                        const example = document.createElement('p');
+                        example.className = 'definition-example';
+                        example.textContent = `"${ex}"`;
+                        examplesContainer.appendChild(example);
+                    });
+                    item.appendChild(examplesContainer);
                 }
 
                 group.appendChild(item);
@@ -233,37 +247,22 @@ export function renderHistoryStats(stats) {
 }
 
 /**
- * Render the history word list
- * @param {Array} words
- * @param {Function} onDelete - callback(word)
- * @param {Function} onLookup - callback(word)
+ * Create a single history item element
  */
-export function renderHistoryList(words, onDelete, onLookup) {
-    const container = document.getElementById('historyList');
-    const emptyEl = document.getElementById('emptyHistory');
+function createHistoryItem(entry, onDelete, onLookup) {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.addEventListener('click', (e) => {
+        if (!e.target.closest('.history-delete-btn')) {
+            onLookup(entry.word);
+        }
+    });
 
-    if (words.length === 0) {
-        container.innerHTML = '';
-        container.appendChild(emptyEl || createEmptyHistory());
-        return;
-    }
+    const levelClass = `level-${Math.min(entry.level, 6)}`;
+    const levelLabel = LEVEL_LABELS[Math.min(entry.level, LEVEL_LABELS.length - 1)];
+    const dateStr = formatDate(entry.addedAt);
 
-    container.innerHTML = '';
-
-    words.forEach((entry) => {
-        const item = document.createElement('div');
-        item.className = 'history-item';
-        item.addEventListener('click', (e) => {
-            if (!e.target.closest('.history-delete-btn')) {
-                onLookup(entry.word);
-            }
-        });
-
-        const levelClass = `level-${Math.min(entry.level, 6)}`;
-        const levelLabel = LEVEL_LABELS[Math.min(entry.level, LEVEL_LABELS.length - 1)];
-        const dateStr = formatDate(entry.addedAt);
-
-        item.innerHTML = `
+    item.innerHTML = `
       <div class="history-word-info">
         <div class="history-word">${escapeHtml(entry.word)}</div>
         <div class="history-translation">${escapeHtml(entry.translation || '')}</div>
@@ -281,18 +280,128 @@ export function renderHistoryList(words, onDelete, onLookup) {
       </button>
     `;
 
-        const deleteBtn = item.querySelector('.history-delete-btn');
-        deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            onDelete(entry.word);
-            item.style.transform = 'translateX(100%)';
-            item.style.opacity = '0';
-            item.style.transition = 'all 0.3s ease';
-            setTimeout(() => item.remove(), 300);
+    const deleteBtn = item.querySelector('.history-delete-btn');
+    deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onDelete(entry.word);
+        item.style.transform = 'translateX(100%)';
+        item.style.opacity = '0';
+        item.style.transition = 'all 0.3s ease';
+        setTimeout(() => item.remove(), 300);
+    });
+
+    return item;
+}
+
+/**
+ * Render the history word list
+ * @param {Array} words
+ * @param {Function} onDelete - callback(word)
+ * @param {Function} onLookup - callback(word)
+ * @param {boolean} showAlphaIndex - whether to group by letter and show index sidebar
+ */
+export function renderHistoryList(words, onDelete, onLookup, showAlphaIndex = false) {
+    const container = document.getElementById('historyList');
+    const emptyEl = document.getElementById('emptyHistory');
+    const page = document.getElementById('pageHistory');
+
+    // Clean up previous alpha index and scroll listener
+    const prevIndex = page.querySelector('.alpha-index');
+    if (prevIndex) prevIndex.remove();
+    if (container._alphaScrollHandler) {
+        window.removeEventListener('scroll', container._alphaScrollHandler);
+        container._alphaScrollHandler = null;
+    }
+    container.classList.remove('has-alpha-index');
+
+    if (words.length === 0) {
+        container.innerHTML = '';
+        container.appendChild(emptyEl || (() => {
+            const d = document.createElement('div');
+            d.className = 'empty-history';
+            d.innerHTML = '<span class="empty-emoji">📝</span><h3>还没有收录任何单词</h3><p>去查词页面搜索单词吧！</p>';
+            return d;
+        })());
+        return;
+    }
+
+    container.innerHTML = '';
+
+    if (!showAlphaIndex) {
+        words.forEach((entry) => container.appendChild(createHistoryItem(entry, onDelete, onLookup)));
+        return;
+    }
+
+    // ===== Alpha mode =====
+    container.classList.add('has-alpha-index');
+
+    // Group words by first letter
+    const groups = new Map();
+    words.forEach((entry) => {
+        const ch = (entry.word[0] || '').toUpperCase();
+        const key = /[A-Z]/.test(ch) ? ch : '#';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(entry);
+    });
+
+    // Sort keys: A–Z, then # at end
+    const sortedKeys = [...groups.keys()].sort((a, b) => {
+        if (a === '#') return 1;
+        if (b === '#') return -1;
+        return a.localeCompare(b);
+    });
+
+    // Render grouped sections
+    sortedKeys.forEach((letter) => {
+        const section = document.createElement('div');
+        section.className = 'alpha-section';
+        section.id = `alpha-section-${letter}`;
+
+        const header = document.createElement('div');
+        header.className = 'alpha-section-header';
+        header.textContent = letter;
+        section.appendChild(header);
+
+        groups.get(letter).forEach((entry) => {
+            section.appendChild(createHistoryItem(entry, onDelete, onLookup));
         });
 
-        container.appendChild(item);
+        container.appendChild(section);
     });
+
+    // Build alpha index sidebar
+    const indexEl = document.createElement('div');
+    indexEl.className = 'alpha-index';
+    sortedKeys.forEach((letter) => {
+        const btn = document.createElement('span');
+        btn.className = 'alpha-index-item';
+        btn.dataset.letter = letter;
+        btn.textContent = letter;
+        btn.addEventListener('click', () => {
+            const section = document.getElementById(`alpha-section-${letter}`);
+            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        indexEl.appendChild(btn);
+    });
+    page.appendChild(indexEl);
+
+    // Highlight active letter on scroll
+    const updateActive = () => {
+        let activeKey = sortedKeys[0];
+        for (const letter of sortedKeys) {
+            const section = document.getElementById(`alpha-section-${letter}`);
+            if (section && section.getBoundingClientRect().top <= 80) {
+                activeKey = letter;
+            }
+        }
+        indexEl.querySelectorAll('.alpha-index-item').forEach((el) => {
+            el.classList.toggle('active', el.dataset.letter === activeKey);
+        });
+    };
+
+    updateActive();
+    window.addEventListener('scroll', updateActive, { passive: true });
+    container._alphaScrollHandler = updateActive;
 }
 
 // ===== Review Page Rendering =====
@@ -330,15 +439,30 @@ export function renderFlashcard(wordEntry, current, total) {
     document.getElementById('flashcardBackWord').textContent = wordEntry.word;
     document.getElementById('flashcardTranslation').textContent = wordEntry.translation || '';
 
-    // First English definition
-    let defText = '';
+    // All meanings with definitions and examples
+    const defEl = document.getElementById('flashcardDefinition');
     if (wordEntry.meanings && wordEntry.meanings.length > 0) {
-        const firstMeaning = wordEntry.meanings[0];
-        if (firstMeaning.definitions && firstMeaning.definitions.length > 0) {
-            defText = `(${firstMeaning.partOfSpeech}) ${firstMeaning.definitions[0].definition}`;
-        }
+        let html = '<div class="flashcard-definitions">';
+        wordEntry.meanings.forEach((meaning) => {
+            html += '<div class="flashcard-meaning-group">';
+            html += `<span class="flashcard-pos">${escapeHtml(meaning.partOfSpeech)}</span>`;
+            meaning.definitions.forEach((def) => {
+                html += `<p class="flashcard-def-text">${escapeHtml(def.definition)}</p>`;
+                if (def.translationZh) {
+                    html += `<p class="flashcard-def-zh">${escapeHtml(def.translationZh)}</p>`;
+                }
+                const examples = def.examples || (def.example ? [def.example] : []);
+                examples.slice(0, 3).forEach((ex) => {
+                    html += `<p class="flashcard-example">${escapeHtml(ex)}</p>`;
+                });
+            });
+            html += '</div>';
+        });
+        html += '</div>';
+        defEl.innerHTML = html;
+    } else {
+        defEl.textContent = '';
     }
-    document.getElementById('flashcardDefinition').textContent = defText;
 
     // Level info
     const levelLabel = LEVEL_LABELS[Math.min(wordEntry.level, LEVEL_LABELS.length - 1)];

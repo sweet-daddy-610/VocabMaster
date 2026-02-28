@@ -111,7 +111,7 @@
 .flashcard-inner {
     position: relative;
     width: 100%;
-    min-height: 300px;
+    height: 420px;
     transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
     transform-style: preserve-3d;
 }
@@ -124,7 +124,7 @@
 .flashcard-back {
     position: absolute;
     width: 100%;
-    min-height: 300px;
+    height: 100%;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
     display: flex;
@@ -134,6 +134,7 @@
     padding: var(--space-xl);
     border-radius: var(--radius-xl);
     text-align: center;
+    overflow: hidden;
 }
 
 .flashcard-front {
@@ -217,7 +218,61 @@
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
     line-height: 1.7;
-    max-width: 400px;
+    max-width: 100%;
+    width: 100%;
+    text-align: left;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.flashcard-definitions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.flashcard-meaning-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.flashcard-pos {
+    display: inline-block;
+    padding: 1px var(--space-sm);
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-primary-light);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    align-self: flex-start;
+}
+
+.flashcard-def-text {
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.flashcard-def-zh {
+    font-size: var(--font-size-sm);
+    color: var(--accent-green);
+    line-height: 1.5;
+    margin: 2px 0 4px;
+}
+
+.flashcard-example {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-style: italic;
+    padding-left: var(--space-sm);
+    border-left: 2px solid rgba(16, 185, 129, 0.3);
+    margin: 0;
+    line-height: 1.5;
 }
 
 /* ===== Review Actions ===== */

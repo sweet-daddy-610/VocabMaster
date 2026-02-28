@@ -382,8 +382,22 @@
 .definition-text {
     font-size: var(--font-size-base);
     color: var(--text-primary);
-    margin-bottom: var(--space-xs);
+    margin-bottom: 2px;
     line-height: 1.7;
+}
+
+.definition-zh {
+    font-size: var(--font-size-sm);
+    color: var(--accent-green);
+    margin-bottom: var(--space-xs);
+    line-height: 1.5;
+}
+
+.definition-examples {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-xs);
 }
 
 .definition-example {
@@ -392,7 +406,6 @@
     font-style: italic;
     padding-left: var(--space-md);
     border-left: 2px solid var(--accent-primary-glow);
-    margin-top: var(--space-xs);
 }
 
 .synonyms-row {

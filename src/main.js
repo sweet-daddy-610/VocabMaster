@@ -3,7 +3,7 @@
  * Wires together all modules and handles user interactions
  */
 
-import { lookupWord, playPronunciation, detectInputType, testDeepSeekApi, translateWithDeepSeek, fetchWordExtras } from './modules/dictionary.js';
+import { lookupWord, playPronunciation, detectInputType, testDeepSeekApi, translateWithDeepSeek, fetchWordExtras, translateDefinitions } from './modules/dictionary.js';
 import { openDB, saveWord, getWord, getAllWords, deleteWord, getWordCount, exportAllWords, importWords, updateWord } from './modules/storage.js';
 import { getDueWords, getDueWordCount, markAsReviewed, getNextReviewTime, getReviewStats } from './modules/ebbinghaus.js';
 import { requestPermission, scheduleReviewCheck } from './modules/notification.js';
@@ -209,17 +209,19 @@ async function handleSearch() {
 
 /**
  * Render a result directly from a cached DB entry — no network calls.
+ * If definitions lack translationZh, translate them in the background and update storage.
  */
-function renderFromCache(entry, inputType) {
+async function renderFromCache(entry, inputType) {
     currentSaveKey = entry.word;
 
+    const meanings = entry.meanings || [];
     const dictData = {
         word: entry.word,
         phonetic: entry.phonetic || '',
         audioUrl: entry.audioUrl || null,
-        meanings: entry.meanings || [],
+        meanings,
         // Preserve translation-only appearance for entries without definitions
-        source: (entry.meanings && entry.meanings.length > 0) ? null : 'translation-only',
+        source: (meanings.length > 0) ? null : 'translation-only',
     };
 
     renderResult(dictData, entry.translation, true, inputType);
@@ -227,6 +229,14 @@ function renderFromCache(entry, inputType) {
 
     const extraPanels = renderExtraPanels();
     setupExtraPanels(entry.word, extraPanels);
+
+    // If any definition is missing translationZh, translate in background then re-render
+    const needsTranslation = meanings.some(m => m.definitions.some(d => !d.translationZh));
+    if (needsTranslation && meanings.length > 0) {
+        await translateDefinitions(meanings);
+        await updateWord(entry.word, { meanings });
+        renderResult(dictData, entry.translation, true, inputType);
+    }
 }
 
 // ===== Extra Panels =====
@@ -377,7 +387,8 @@ async function refreshHistory() {
                 document.getElementById('searchInput').value = word;
                 switchPage('pageDictionary');
                 handleSearch();
-            }
+            },
+            sortBy === 'alpha'
         );
     } catch (error) {
         console.error('History refresh error:', error);

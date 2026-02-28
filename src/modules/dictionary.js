@@ -109,13 +109,13 @@ function parseWiktionaryEntries(originalText, entries) {
     for (const entry of entries) {
         if (!entry.definitions || entry.definitions.length === 0) continue;
 
-        const defs = entry.definitions.slice(0, 3).map((d) => {
+        const defs = entry.definitions.map((d) => {
             // Strip HTML tags from definition
             const definition = stripHtml(d.definition || '');
-            const examples = (d.examples || []).slice(0, 2).map(e => stripHtml(e));
+            const examples = (d.examples || []).slice(0, 3).map(e => stripHtml(e));
             return {
                 definition,
-                example: examples.length > 0 ? examples[0] : null,
+                examples,
             };
         }).filter(d => d.definition);
 
@@ -195,6 +195,25 @@ async function translateChineseToEnglish(text) {
     return await translateText(text, 'zh-CN|en');
 }
 
+/**
+ * Translate each definition in meanings to Chinese in parallel
+ * Stores result in def.translationZh
+ * @param {Array} meanings
+ */
+export async function translateDefinitions(meanings) {
+    const tasks = [];
+    for (const meaning of meanings) {
+        for (const def of meaning.definitions) {
+            tasks.push(
+                translateText(def.definition, 'en|zh-CN').then((zh) => {
+                    def.translationZh = zh || '';
+                })
+            );
+        }
+    }
+    await Promise.all(tasks);
+}
+
 // ===== Unified Lookup Entry Point =====
 
 /**
@@ -228,12 +247,14 @@ async function handleWordLookup(word) {
     ]);
 
     if (dictData) {
+        await translateDefinitions(dictData.meanings);
         return { dictData, translation, inputType: 'word' };
     }
 
     // Fallback to Wiktionary
     const wikiData = await lookupWiktionary(word);
     if (wikiData) {
+        await translateDefinitions(wikiData.meanings);
         return { dictData: wikiData, translation, inputType: 'word' };
     }
 
@@ -270,12 +291,14 @@ async function handlePhraseLookup(phrase) {
     ]);
 
     if (wikiData) {
+        await translateDefinitions(wikiData.meanings);
         return { dictData: wikiData, translation, inputType: 'phrase' };
     }
 
     // Also try Free Dictionary (some compound words work)
     const dictData = await lookupFreeDictionary(phrase);
     if (dictData) {
+        await translateDefinitions(dictData.meanings);
         return { dictData, translation, inputType: 'phrase' };
     }
 
@@ -644,9 +667,9 @@ function extractMeanings(entry) {
     if (!entry.meanings) return [];
     return entry.meanings.map((m) => ({
         partOfSpeech: m.partOfSpeech || 'unknown',
-        definitions: (m.definitions || []).slice(0, 3).map((d) => ({
+        definitions: (m.definitions || []).map((d) => ({
             definition: d.definition,
-            example: d.example || null,
+            examples: d.example ? [d.example] : [],
         })),
         synonyms: (m.synonyms || []).slice(0, 5),
     }));
