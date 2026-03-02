@@ -98,12 +98,13 @@ function toggleWidget() {
 }
 
 // ===== Main App Window =====
-function createMainWindow(searchTerm = '') {
+// pendingIpc: { channel, data } — sent to renderer after window is ready
+function createMainWindow(pendingIpc = null) {
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
         mainWindow.focus();
-        if (searchTerm) {
-            mainWindow.webContents.send('search-term', searchTerm);
+        if (pendingIpc) {
+            mainWindow.webContents.send(pendingIpc.channel, pendingIpc.data);
         }
         return;
     }
@@ -130,6 +131,12 @@ function createMainWindow(searchTerm = '') {
         mainWindow.loadURL(VITE_DEV_URL);
     } else {
         mainWindow.loadFile(path.join(process.resourcesPath, 'dist', 'index.html'));
+    }
+
+    if (pendingIpc) {
+        mainWindow.webContents.once('did-finish-load', () => {
+            mainWindow.webContents.send(pendingIpc.channel, pendingIpc.data);
+        });
     }
 
     mainWindow.on('closed', () => {
@@ -175,7 +182,15 @@ function startReviewCheck() {
 // ===== IPC Handlers =====
 function setupIPC() {
     ipcMain.on('open-main-app', (_event, searchTerm) => {
-        createMainWindow(searchTerm);
+        const ipc = searchTerm ? { channel: 'search-term', data: searchTerm } : null;
+        createMainWindow(ipc);
+        if (widgetWindow && widgetWindow.isVisible()) {
+            widgetWindow.hide();
+        }
+    });
+
+    ipcMain.on('open-main-app-review', (_event, word) => {
+        createMainWindow({ channel: 'navigate-to-review', data: word });
         if (widgetWindow && widgetWindow.isVisible()) {
             widgetWindow.hide();
         }

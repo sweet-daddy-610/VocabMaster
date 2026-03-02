@@ -104,6 +104,14 @@ function setupEventListeners() {
         if (e.detail === 'pageReview') refreshReview();
     });
 
+    // Electron IPC: navigate to review page for a specific word
+    if (window.electronAPI && window.electronAPI.onNavigateToReview) {
+        window.electronAPI.onNavigateToReview((word) => {
+            switchPage('pageReview');
+            refreshReview(word);
+        });
+    }
+
     // Flashcard flip
     const flashcard = document.getElementById('flashcard');
     flashcard.addEventListener('click', (e) => {
@@ -125,6 +133,10 @@ function setupEventListeners() {
     document.getElementById('rememberedBtn').addEventListener('click', () => handleReviewAction(true));
     document.getElementById('forgotBtn').addEventListener('click', () => handleReviewAction(false));
     document.getElementById('restartReviewBtn').addEventListener('click', () => refreshReview());
+    document.getElementById('masteredLink').addEventListener('click', (e) => {
+        e.preventDefault();
+        handleMastered();
+    });
 
     // History search & sort
     document.getElementById('historySearch').addEventListener('input', () => refreshHistory());
@@ -396,7 +408,7 @@ async function refreshHistory() {
 }
 
 // ===== Review =====
-async function refreshReview() {
+async function refreshReview(priorityWord = null) {
     try {
         const dueWords = await getDueWords();
 
@@ -412,6 +424,15 @@ async function refreshReview() {
         reviewIndex = 0;
         reviewRemembered = 0;
         reviewForgot = 0;
+
+        // If a specific word was requested, move it to the front
+        if (priorityWord) {
+            const idx = reviewQueue.findIndex(w => w.word === priorityWord.toLowerCase());
+            if (idx > 0) {
+                const [word] = reviewQueue.splice(idx, 1);
+                reviewQueue.unshift(word);
+            }
+        }
 
         showReviewState('card');
         renderFlashcard(reviewQueue[0], 1, reviewQueue.length);
@@ -446,6 +467,26 @@ async function handleReviewAction(remembered) {
     }
 
     // Next card
+    renderFlashcard(reviewQueue[reviewIndex], reviewIndex + 1, reviewQueue.length);
+    document.getElementById('flashcardSoundBtn').dataset.audioUrl = reviewQueue[reviewIndex].audioUrl || '';
+}
+
+async function handleMastered() {
+    if (reviewIndex >= reviewQueue.length) return;
+
+    const currentWord = reviewQueue[reviewIndex];
+    await deleteWord(currentWord.word);
+    showToast(`"${currentWord.word}" 已从单词书中移除`, 'success');
+    notifyWidgetDataChanged();
+
+    reviewIndex++;
+
+    if (reviewIndex >= reviewQueue.length) {
+        renderReviewComplete(reviewRemembered, reviewForgot);
+        await refreshStats();
+        return;
+    }
+
     renderFlashcard(reviewQueue[reviewIndex], reviewIndex + 1, reviewQueue.length);
     document.getElementById('flashcardSoundBtn').dataset.audioUrl = reviewQueue[reviewIndex].audioUrl || '';
 }

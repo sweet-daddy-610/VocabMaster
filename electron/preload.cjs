@@ -6,8 +6,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    // Open the main VocabMaster app window
+    // Open the main VocabMaster app window (with optional search term)
     openMainApp: (searchTerm) => ipcRenderer.send('open-main-app', searchTerm || ''),
+
+    // Open the main window and navigate directly to the review page for a specific word
+    openMainAppToReview: (word) => ipcRenderer.send('open-main-app-review', word || ''),
 
     // Close/hide the widget popup
     closeWidget: () => ipcRenderer.send('close-widget'),
@@ -26,4 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Listen for search term from main window
     onSearchTerm: (callback) => ipcRenderer.on('search-term', (_event, term) => callback(term)),
+
+    // Listen for navigate-to-review signal (opens review page for a specific word)
+    onNavigateToReview: (callback) => ipcRenderer.on('navigate-to-review', (_event, word) => callback(word)),
 });

@@ -761,7 +761,12 @@
         // Open app button
         document.getElementById('openAppBtn').addEventListener('click', () => {
             if (window.electronAPI) {
-                window.electronAPI.openMainApp('');
+                const isReviewing = reviewMode.classList.contains('active') && dueWords[currentIndex];
+                if (isReviewing) {
+                    window.electronAPI.openMainAppToReview(dueWords[currentIndex].word);
+                } else {
+                    window.electronAPI.openMainApp('');
+                }
             }
         });
 
