@@ -5,6 +5,7 @@
 
 const { app, BrowserWindow, Tray, nativeImage, ipcMain, screen, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // ===== Config =====
 const WIDGET_WIDTH = 320;
@@ -17,6 +18,63 @@ let tray = null;
 let widgetWindow = null;
 let mainWindow = null;
 let reviewCheckTimer = null;
+let saveStateTimeout = null;
+
+// ===== Window State Persistence =====
+const WINDOW_STATE_FILE = 'window-state.json';
+const DEFAULT_WIDTH = 420;
+const DEFAULT_HEIGHT = 750;
+
+function getWindowStatePath() {
+    return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
+}
+
+function loadWindowState() {
+    try {
+        const data = fs.readFileSync(getWindowStatePath(), 'utf-8');
+        const state = JSON.parse(data);
+        // Validate that the saved position is still on a visible display
+        if (state.x !== undefined && state.y !== undefined) {
+            const displays = screen.getAllDisplays();
+            const isVisible = displays.some((display) => {
+                const { x, y, width, height } = display.workArea;
+                return (
+                    state.x >= x - 100 &&
+                    state.x < x + width + 100 &&
+                    state.y >= y - 100 &&
+                    state.y < y + height + 100
+                );
+            });
+            if (!isVisible) {
+                // Reset position if window would be off-screen
+                delete state.x;
+                delete state.y;
+            }
+        }
+        return state;
+    } catch {
+        return null;
+    }
+}
+
+function saveWindowState(win) {
+    if (!win || win.isDestroyed() || win.isMinimized()) return;
+    try {
+        const bounds = win.getBounds();
+        fs.writeFileSync(
+            getWindowStatePath(),
+            JSON.stringify(bounds),
+            'utf-8'
+        );
+    } catch {
+        // Silently ignore write errors
+    }
+}
+
+function debouncedSaveWindowState(win) {
+    if (saveStateTimeout) clearTimeout(saveStateTimeout);
+    saveStateTimeout = setTimeout(() => saveWindowState(win), 500);
+}
 
 // ===== Tray Icon =====
 function createEmptyIcon() {
@@ -109,9 +167,11 @@ function createMainWindow(pendingIpc = null) {
         return;
     }
 
-    mainWindow = new BrowserWindow({
-        width: 420,
-        height: 750,
+    const savedState = loadWindowState();
+
+    const windowOptions = {
+        width: savedState?.width || DEFAULT_WIDTH,
+        height: savedState?.height || DEFAULT_HEIGHT,
         minWidth: 360,
         minHeight: 600,
         titleBarStyle: 'hiddenInset',
@@ -125,7 +185,14 @@ function createMainWindow(pendingIpc = null) {
             // Safe for desktop apps that only load local bundled content
             webSecurity: false,
         },
-    });
+    };
+
+    if (savedState?.x !== undefined && savedState?.y !== undefined) {
+        windowOptions.x = savedState.x;
+        windowOptions.y = savedState.y;
+    }
+
+    mainWindow = new BrowserWindow(windowOptions);
 
     if (IS_DEV) {
         mainWindow.loadURL(VITE_DEV_URL);
@@ -139,6 +206,9 @@ function createMainWindow(pendingIpc = null) {
         });
     }
 
+    mainWindow.on('resize', () => debouncedSaveWindowState(mainWindow));
+    mainWindow.on('move', () => debouncedSaveWindowState(mainWindow));
+    mainWindow.on('close', () => saveWindowState(mainWindow));
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
